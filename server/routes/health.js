@@ -9,7 +9,7 @@ router.get('/', (req, res) => {
     version: '1.0.0',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    database: dbService.isUsingDatabase() ? 'MySQL (Connected)' : 'In-Memory Persistence',
+    database: dbService.getDatabaseStatus(),
     openWeatherApiConfigured: Boolean(process.env.OPENWEATHER_API_KEY)
   });
 });

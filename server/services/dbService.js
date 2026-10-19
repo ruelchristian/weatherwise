@@ -1,10 +1,13 @@
-const mysql = require('mysql2/promise');
+// Multi-dialect Database Service (PostgreSQL & MySQL & In-Memory Fallback)
+let pgPool = null;
+let mysqlPool = null;
+let dbDialect = 'memory'; // 'postgres', 'mysql', or 'memory'
 
 // In-memory fallback store
 const memoryStore = {
   preferences: {
-    unit: 'metric', // 'metric' (°C) or 'imperial' (°F)
-    windUnit: 'kmh', // 'kmh' or 'mph'
+    unit: 'metric',
+    windUnit: 'kmh',
     autoRefresh: true,
     refreshInterval: 15
   },
@@ -16,34 +19,87 @@ const memoryStore = {
   searchHistory: []
 };
 
-let pool = null;
-let useDatabase = false;
-
-// Initialize MySQL pool if environment credentials exist
 async function initDb() {
-  const dbUrl = process.env.DATABASE_URL || process.env.MYSQL_URL;
-  const host = process.env.DB_HOST || process.env.MYSQLHOST;
-  const user = process.env.DB_USER || process.env.MYSQLUSER;
-  const password = process.env.DB_PASSWORD || process.env.MYSQLPASSWORD;
-  const database = process.env.DB_NAME || process.env.MYSQLDATABASE;
-  const port = process.env.DB_PORT || process.env.MYSQLPORT || 3306;
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.MYSQL_URL;
+  const isPostgres = dbUrl && (dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://'));
+  const isMysql = (dbUrl && dbUrl.startsWith('mysql://')) || Boolean(process.env.DB_HOST || process.env.MYSQLHOST);
 
-  if (dbUrl || (host && user)) {
+  // 1. Try PostgreSQL if configured
+  if (isPostgres) {
     try {
-      pool = dbUrl 
+      const { Pool } = require('pg');
+      pgPool = new Pool({
+        connectionString: dbUrl,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      });
+
+      const client = await pgPool.connect();
+      await client.query('SELECT 1');
+      client.release();
+      dbDialect = 'postgres';
+      console.log('✅ Connected to PostgreSQL database');
+
+      // Create isolated tables for WeatherWise
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS weatherwise_user_preferences (
+          id SERIAL PRIMARY KEY,
+          temp_unit VARCHAR(10) DEFAULT 'metric',
+          wind_unit VARCHAR(10) DEFAULT 'kmh',
+          auto_refresh BOOLEAN DEFAULT TRUE,
+          refresh_interval INT DEFAULT 15,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS weatherwise_saved_locations (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          country VARCHAR(10) NOT NULL,
+          lat DOUBLE PRECISION NOT NULL,
+          lon DOUBLE PRECISION NOT NULL,
+          is_default BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS weatherwise_search_history (
+          id SERIAL PRIMARY KEY,
+          query VARCHAR(100) NOT NULL,
+          searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      return;
+    } catch (err) {
+      console.warn('⚠️ PostgreSQL connection failed, checking MySQL or in-memory fallback:', err.message);
+      dbDialect = 'memory';
+    }
+  }
+
+  // 2. Try MySQL if configured
+  if (isMysql) {
+    try {
+      const mysql = require('mysql2/promise');
+      const host = process.env.DB_HOST || process.env.MYSQLHOST;
+      const user = process.env.DB_USER || process.env.MYSQLUSER;
+      const password = process.env.DB_PASSWORD || process.env.MYSQLPASSWORD;
+      const database = process.env.DB_NAME || process.env.MYSQLDATABASE;
+      const port = process.env.DB_PORT || process.env.MYSQLPORT || 3306;
+
+      mysqlPool = dbUrl && dbUrl.startsWith('mysql://')
         ? mysql.createPool(dbUrl)
         : mysql.createPool({ host, user, password, database, port, waitForConnections: true, connectionLimit: 10 });
-      
-      // Test connection
-      const conn = await pool.getConnection();
+
+      const conn = await mysqlPool.getConnection();
       await conn.ping();
       conn.release();
-      useDatabase = true;
+      dbDialect = 'mysql';
       console.log('✅ Connected to MySQL database');
 
-      // Create tables if they do not exist
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS user_preferences (
+      await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS weatherwise_user_preferences (
           id INT AUTO_INCREMENT PRIMARY KEY,
           temp_unit VARCHAR(10) DEFAULT 'metric',
           wind_unit VARCHAR(10) DEFAULT 'kmh',
@@ -53,8 +109,8 @@ async function initDb() {
         );
       `);
 
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS saved_locations (
+      await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS weatherwise_saved_locations (
           id INT AUTO_INCREMENT PRIMARY KEY,
           name VARCHAR(100) NOT NULL,
           country VARCHAR(10) NOT NULL,
@@ -65,28 +121,44 @@ async function initDb() {
         );
       `);
 
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS search_history (
+      await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS weatherwise_search_history (
           id INT AUTO_INCREMENT PRIMARY KEY,
           query VARCHAR(100) NOT NULL,
           searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
       `);
 
+      return;
     } catch (err) {
-      console.warn('⚠️ MySQL connection failed. Using resilient in-memory store:', err.message);
-      useDatabase = false;
+      console.warn('⚠️ MySQL connection failed, falling back to in-memory store:', err.message);
+      dbDialect = 'memory';
     }
-  } else {
-    console.log('ℹ️ No MySQL connection strings found in environment. Running with in-memory persistence.');
   }
+
+  console.log('ℹ️ Running with resilient in-memory persistence store.');
 }
 
 // Preference methods
 async function getPreferences() {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      const [rows] = await pool.query('SELECT * FROM user_preferences ORDER BY id DESC LIMIT 1');
+      const res = await pgPool.query('SELECT * FROM weatherwise_user_preferences ORDER BY id DESC LIMIT 1');
+      if (res.rows.length > 0) {
+        const r = res.rows[0];
+        return {
+          unit: r.temp_unit,
+          windUnit: r.wind_unit,
+          autoRefresh: Boolean(r.auto_refresh),
+          refreshInterval: r.refresh_interval
+        };
+      }
+    } catch (err) {
+      console.error('Postgres preferences query error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      const [rows] = await mysqlPool.query('SELECT * FROM weatherwise_user_preferences ORDER BY id DESC LIMIT 1');
       if (rows.length > 0) {
         return {
           unit: rows[0].temp_unit,
@@ -96,23 +168,34 @@ async function getPreferences() {
         };
       }
     } catch (err) {
-      console.error('Database query error:', err.message);
+      console.error('MySQL preferences query error:', err.message);
     }
   }
   return memoryStore.preferences;
 }
 
 async function savePreferences(prefs) {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      await pool.query(
-        `INSERT INTO user_preferences (temp_unit, wind_unit, auto_refresh, refresh_interval)
+      await pgPool.query(
+        `INSERT INTO weatherwise_user_preferences (temp_unit, wind_unit, auto_refresh, refresh_interval)
+         VALUES ($1, $2, $3, $4)`,
+        [prefs.unit || 'metric', prefs.windUnit || 'kmh', prefs.autoRefresh ?? true, prefs.refreshInterval || 15]
+      );
+      return prefs;
+    } catch (err) {
+      console.error('Postgres preferences save error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      await mysqlPool.query(
+        `INSERT INTO weatherwise_user_preferences (temp_unit, wind_unit, auto_refresh, refresh_interval)
          VALUES (?, ?, ?, ?)`,
         [prefs.unit || 'metric', prefs.windUnit || 'kmh', prefs.autoRefresh ?? true, prefs.refreshInterval || 15]
       );
       return prefs;
     } catch (err) {
-      console.error('Database save error:', err.message);
+      console.error('MySQL preferences save error:', err.message);
     }
   }
   memoryStore.preferences = { ...memoryStore.preferences, ...prefs };
@@ -121,34 +204,59 @@ async function savePreferences(prefs) {
 
 // Saved Locations methods
 async function getSavedLocations() {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      const [rows] = await pool.query('SELECT * FROM saved_locations ORDER BY id DESC');
+      const res = await pgPool.query('SELECT * FROM weatherwise_saved_locations ORDER BY id DESC');
+      return res.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        country: r.country,
+        lat: parseFloat(r.lat),
+        lon: parseFloat(r.lon),
+        isDefault: Boolean(r.is_default)
+      }));
+    } catch (err) {
+      console.error('Postgres saved locations error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      const [rows] = await mysqlPool.query('SELECT * FROM weatherwise_saved_locations ORDER BY id DESC');
       return rows.map(r => ({
         id: r.id,
         name: r.name,
         country: r.country,
-        lat: r.lat,
-        lon: r.lon,
+        lat: parseFloat(r.lat),
+        lon: parseFloat(r.lon),
         isDefault: Boolean(r.is_default)
       }));
     } catch (err) {
-      console.error('Database query error:', err.message);
+      console.error('MySQL saved locations error:', err.message);
     }
   }
   return memoryStore.savedLocations;
 }
 
 async function addSavedLocation(loc) {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      const [result] = await pool.query(
-        'INSERT INTO saved_locations (name, country, lat, lon, is_default) VALUES (?, ?, ?, ?, ?)',
+      const res = await pgPool.query(
+        `INSERT INTO weatherwise_saved_locations (name, country, lat, lon, is_default)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [loc.name, loc.country || '', loc.lat || 0, loc.lon || 0, loc.isDefault ? true : false]
+      );
+      return { id: res.rows[0].id, ...loc };
+    } catch (err) {
+      console.error('Postgres insert location error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      const [result] = await mysqlPool.query(
+        'INSERT INTO weatherwise_saved_locations (name, country, lat, lon, is_default) VALUES (?, ?, ?, ?, ?)',
         [loc.name, loc.country || '', loc.lat || 0, loc.lon || 0, loc.isDefault ? 1 : 0]
       );
       return { id: result.insertId, ...loc };
     } catch (err) {
-      console.error('Database insert error:', err.message);
+      console.error('MySQL insert location error:', err.message);
     }
   }
   const newLoc = { id: Date.now(), ...loc };
@@ -157,12 +265,19 @@ async function addSavedLocation(loc) {
 }
 
 async function deleteSavedLocation(id) {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      await pool.query('DELETE FROM saved_locations WHERE id = ?', [id]);
+      await pgPool.query('DELETE FROM weatherwise_saved_locations WHERE id = $1', [id]);
       return true;
     } catch (err) {
-      console.error('Database delete error:', err.message);
+      console.error('Postgres delete location error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      await mysqlPool.query('DELETE FROM weatherwise_saved_locations WHERE id = ?', [id]);
+      return true;
+    } catch (err) {
+      console.error('MySQL delete location error:', err.message);
     }
   }
   memoryStore.savedLocations = memoryStore.savedLocations.filter(l => l.id != id);
@@ -171,11 +286,19 @@ async function deleteSavedLocation(id) {
 
 // Search History
 async function addSearchQuery(query) {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      await pool.query('INSERT INTO search_history (query) VALUES (?)', [query]);
+      await pgPool.query('INSERT INTO weatherwise_search_history (query) VALUES ($1)', [query]);
+      return;
     } catch (err) {
-      console.error('Database search query error:', err.message);
+      console.error('Postgres search query insert error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      await mysqlPool.query('INSERT INTO weatherwise_search_history (query) VALUES (?)', [query]);
+      return;
+    } catch (err) {
+      console.error('MySQL search query insert error:', err.message);
     }
   }
   memoryStore.searchHistory.unshift({ query, searchedAt: new Date().toISOString() });
@@ -183,12 +306,19 @@ async function addSearchQuery(query) {
 }
 
 async function getSearchHistory() {
-  if (useDatabase && pool) {
+  if (dbDialect === 'postgres' && pgPool) {
     try {
-      const [rows] = await pool.query('SELECT query, searched_at FROM search_history ORDER BY id DESC LIMIT 10');
+      const res = await pgPool.query('SELECT query, searched_at FROM weatherwise_search_history ORDER BY id DESC LIMIT 10');
+      return res.rows;
+    } catch (err) {
+      console.error('Postgres search history error:', err.message);
+    }
+  } else if (dbDialect === 'mysql' && mysqlPool) {
+    try {
+      const [rows] = await mysqlPool.query('SELECT query, searched_at FROM weatherwise_search_history ORDER BY id DESC LIMIT 10');
       return rows;
     } catch (err) {
-      console.error('Database search history error:', err.message);
+      console.error('MySQL search history error:', err.message);
     }
   }
   return memoryStore.searchHistory.slice(0, 10);
@@ -203,5 +333,9 @@ module.exports = {
   deleteSavedLocation,
   addSearchQuery,
   getSearchHistory,
-  isUsingDatabase: () => useDatabase
+  getDatabaseStatus: () => {
+    if (dbDialect === 'postgres') return 'PostgreSQL (Connected)';
+    if (dbDialect === 'mysql') return 'MySQL (Connected)';
+    return 'In-Memory Persistence';
+  }
 };
