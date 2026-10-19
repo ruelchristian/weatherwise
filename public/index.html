@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WeatherWise — Real-Time Weather Monitoring & Forecasting</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌦️</text></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- Header / Navigation -->
+  <header class="sticky top-0 z-40 backdrop-blur-md bg-slate-900/80 border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      
+      <!-- Brand -->
+      <div class="flex items-center gap-3 cursor-pointer" onclick="fetchWeather('Manila')">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/25">
+          <i class="fa-solid fa-cloud-sun-rain text-white text-lg"></i>
+        </div>
+        <div>
+          <span class="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-sky-100 to-sky-400 bg-clip-text text-transparent">WeatherWise</span>
+          <span class="hidden sm:inline-block ml-2 text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20">Live</span>
+        </div>
+      </div>
+
+      <!-- Search Input in Header (Desktop / Tablet) -->
+      <div class="relative flex-1 max-w-md hidden md:block">
+        <div class="relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+          <input 
+            type="text" 
+            id="desktopSearchInput" 
+            placeholder="Search city (e.g., Manila, Tokyo, London)..."
+            class="w-full bg-slate-800/80 hover:bg-slate-800 focus:bg-slate-800 text-sm pl-10 pr-24 py-2.5 rounded-xl border border-slate-700/80 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 transition-all placeholder:text-slate-500"
+          >
+          <button id="searchBtnDesktop" class="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold rounded-lg transition-colors">
+            Search
+          </button>
+        </div>
+        <!-- Autocomplete Suggestions Dropdown -->
+        <div id="desktopSuggestions" class="hidden absolute top-full left-0 right-0 mt-2 bg-slate-800/95 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 divide-y divide-slate-700/50 backdrop-blur-md"></div>
+      </div>
+
+      <!-- Controls: Temp Unit & Settings -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Current Location Button -->
+        <button id="currentLocBtn" title="Use current location" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition">
+          <i class="fa-solid fa-location-crosshairs text-sm"></i>
+        </button>
+
+        <!-- Temperature Unit Toggle -->
+        <div class="inline-flex p-1 rounded-xl bg-slate-800 border border-slate-700">
+          <button id="unitCelsiusBtn" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all bg-sky-500 text-white shadow-sm">°C</button>
+          <button id="unitFahrenheitBtn" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">°F</button>
+        </div>
+
+        <!-- Settings Modal Trigger -->
+        <button id="settingsBtn" title="System Settings" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition">
+          <i class="fa-solid fa-gear text-sm"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Search Bar -->
+    <div class="px-4 pb-3 md:hidden">
+      <div class="relative">
+        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+        <input 
+          type="text" 
+          id="mobileSearchInput" 
+          placeholder="Search city or location..."
+          class="w-full bg-slate-800 text-sm pl-10 pr-20 py-2.5 rounded-xl border border-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 placeholder:text-slate-500"
+        >
+        <button id="searchBtnMobile" class="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold rounded-lg">
+          Search
+        </button>
+      </div>
+      <div id="mobileSuggestions" class="hidden absolute top-full left-4 right-4 mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 divide-y divide-slate-700/50"></div>
+    </div>
+  </header>
+
+  <!-- Notice Banner (shows if simulated or live) -->
+  <div id="noticeBanner" class="bg-sky-950/70 border-b border-sky-800/40 text-xs text-sky-200 px-4 py-2 flex items-center justify-between">
+    <div class="max-w-7xl mx-auto w-full flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-circle-info text-sky-400"></i>
+        <span id="noticeText">Live Weather Feed active with automatic caching and rate-limit safety.</span>
+      </div>
+      <button onclick="document.getElementById('noticeBanner').style.display='none'" class="text-sky-400 hover:text-white">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full space-y-6">
+
+    <!-- Quick Location Chips (Saved & Popular) -->
+    <section class="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" id="savedLocationsBar">
+      <span class="text-xs text-slate-400 font-medium whitespace-nowrap"><i class="fa-solid fa-bookmark text-amber-400 mr-1.5"></i>Pinned:</span>
+      <div id="locationChips" class="flex items-center gap-2">
+        <!-- Injected via JavaScript -->
+      </div>
+    </section>
+
+    <!-- Loading State Skeleton -->
+    <div id="loadingIndicator" class="hidden py-24 text-center">
+      <div class="inline-block w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
+      <p class="mt-4 text-slate-400 text-sm font-medium">Fetching real-time meteorological observations...</p>
+    </div>
+
+    <!-- Error State Display -->
+    <div id="errorMessage" class="hidden bg-rose-500/10 border border-rose-500/30 rounded-2xl p-6 text-center">
+      <i class="fa-solid fa-triangle-exclamation text-rose-400 text-3xl mb-2"></i>
+      <h3 class="text-lg font-bold text-rose-300">Location Not Found</h3>
+      <p id="errorText" class="text-sm text-slate-400 mt-1">Unable to retrieve weather data for this location. Please check the spelling or try another city.</p>
+      <button onclick="fetchWeather('Manila')" class="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-xl text-white transition">
+        Reset to Default (Manila)
+      </button>
+    </div>
+
+    <!-- Weather Content (Current + Rain + Upcoming Forecast) -->
+    <div id="weatherContent" class="space-y-6">
+
+      <!-- Top Row: Hero Current Weather Card + Secondary Metrics -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Main Weather Hero Card (2 cols on desktop) -->
+        <div id="heroCard" class="lg:col-span-2 relative overflow-hidden rounded-3xl p-6 sm:p-8 bg-gradient-to-br from-slate-800/90 to-slate-900/90 border border-slate-700/70 shadow-2xl backdrop-blur-sm">
+          
+          <!-- Background Atmospheric Glow -->
+          <div class="absolute -right-12 -top-12 w-64 h-64 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+          <div class="relative z-10 flex flex-col justify-between h-full gap-6">
+            <!-- Header Row: City, Time, Pin Button -->
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="flex items-center gap-3">
+                  <h1 id="cityTitle" class="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">Manila</h1>
+                  <span id="countryBadge" class="text-xs font-bold px-2.5 py-1 rounded-md bg-slate-700/80 text-sky-300 uppercase tracking-wider">PH</span>
+                </div>
+                <p id="dateTimeLabel" class="text-xs sm:text-sm text-slate-400 mt-1">Checking current observations...</p>
+              </div>
+
+              <!-- Pin / Save location button -->
+              <button id="pinLocationBtn" title="Pin city to quick access" class="p-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-amber-400 border border-slate-700/80 transition-all shadow-sm">
+                <i class="fa-regular fa-star text-base"></i>
+              </button>
+            </div>
+
+            <!-- Temperature & Primary Condition Display -->
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 py-2">
+              <div class="flex items-baseline gap-2">
+                <span id="currentTemp" class="text-6xl sm:text-8xl font-black tracking-tighter text-white">31</span>
+                <span id="currentTempUnit" class="text-3xl sm:text-5xl font-light text-sky-400">°C</span>
+              </div>
+
+              <div class="flex items-center gap-4">
+                <div id="conditionIconWrapper" class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-center text-4xl sm:text-5xl shadow-inner text-amber-300">
+                  <i class="fa-solid fa-cloud-sun"></i>
+                </div>
+                <div>
+                  <div id="conditionBadge" class="inline-block text-xs font-bold px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 uppercase tracking-wider">Scattered Clouds</div>
+                  <p id="feelsLikeText" class="text-xs sm:text-sm text-slate-400 mt-1.5 font-medium">Feels like 34°C</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Highlights Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-700/50">
+              <div class="bg-slate-800/50 rounded-2xl p-3 border border-slate-700/40">
+                <div class="text-slate-400 text-xs flex items-center gap-1.5"><i class="fa-solid fa-droplet text-sky-400"></i> Humidity</div>
+                <div id="humidityVal" class="text-lg font-bold text-white mt-1">76%</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-2xl p-3 border border-slate-700/40">
+                <div class="text-slate-400 text-xs flex items-center gap-1.5"><i class="fa-solid fa-wind text-teal-400"></i> Wind Speed</div>
+                <div id="windVal" class="text-lg font-bold text-white mt-1">14 km/h</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-2xl p-3 border border-slate-700/40">
+                <div class="text-slate-400 text-xs flex items-center gap-1.5"><i class="fa-solid fa-cloud-rain text-blue-400"></i> Rain Chance</div>
+                <div id="rainVal" class="text-lg font-bold text-white mt-1">45%</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-2xl p-3 border border-slate-700/40">
+                <div class="text-slate-400 text-xs flex items-center gap-1.5"><i class="fa-solid fa-gauge-high text-purple-400"></i> Pressure</div>
+                <div id="pressureVal" class="text-lg font-bold text-white mt-1">1012 hPa</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Atmospheric Details & Sun Card (1 col on desktop) -->
+        <div class="bg-slate-800/70 border border-slate-700/70 rounded-3xl p-6 flex flex-col justify-between shadow-xl backdrop-blur-sm gap-6">
+          <div>
+            <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-chart-simple text-sky-400"></i> Atmospheric Parameters
+            </h2>
+            <div class="mt-4 space-y-3.5">
+              <div class="flex items-center justify-between text-xs sm:text-sm">
+                <span class="text-slate-400">Cloud Coverage</span>
+                <span id="cloudinessVal" class="font-semibold text-white">75%</span>
+              </div>
+              <div class="w-full bg-slate-700 rounded-full h-1.5">
+                <div id="cloudBar" class="bg-slate-300 h-1.5 rounded-full" style="width: 75%"></div>
+              </div>
+
+              <div class="flex items-center justify-between text-xs sm:text-sm">
+                <span class="text-slate-400">Precipitation Potential</span>
+                <span id="precipRisk" class="font-semibold text-sky-400">Moderate</span>
+              </div>
+              <div class="w-full bg-slate-700 rounded-full h-1.5">
+                <div id="precipBar" class="bg-sky-400 h-1.5 rounded-full" style="width: 45%"></div>
+              </div>
+
+              <div class="flex items-center justify-between text-xs sm:text-sm">
+                <span class="text-slate-400">Coordinates</span>
+                <span id="coordsVal" class="font-mono text-xs text-slate-300">14.5995° N, 120.9842° E</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sun Times -->
+          <div class="bg-slate-900/60 rounded-2xl p-4 border border-slate-700/50">
+            <div class="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
+              <i class="fa-solid fa-sun text-amber-400"></i> Daylight Cycle
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-center">
+              <div class="p-2 rounded-xl bg-slate-800/40">
+                <div class="text-[10px] uppercase text-slate-400 font-bold">Sunrise</div>
+                <div id="sunriseVal" class="text-sm font-bold text-amber-300 mt-0.5">5:45 AM</div>
+              </div>
+              <div class="p-2 rounded-xl bg-slate-800/40">
+                <div class="text-[10px] uppercase text-slate-400 font-bold">Sunset</div>
+                <div id="sunsetVal" class="text-sm font-bold text-orange-400 mt-0.5">6:15 PM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Rain Forecast Timeline Module -->
+      <section class="bg-slate-800/70 border border-slate-700/70 rounded-3xl p-6 shadow-xl backdrop-blur-sm">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-umbrella text-sky-400"></i> Precipitation & Rain Forecast (Next 24h)
+          </h2>
+          <span class="text-xs text-slate-400">3-hour increments</span>
+        </div>
+
+        <div id="rainTimeline" class="grid grid-cols-4 sm:grid-cols-8 gap-3 overflow-x-auto pb-2">
+          <!-- Injected via JavaScript -->
+        </div>
+      </section>
+
+      <!-- Upcoming 5-Day Forecast Module -->
+      <section class="bg-slate-800/70 border border-slate-700/70 rounded-3xl p-6 shadow-xl backdrop-blur-sm">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-calendar-days text-indigo-400"></i> 5-Day Upcoming Forecast
+          </h2>
+          <span class="text-xs text-slate-400">Daily Projections</span>
+        </div>
+
+        <div id="forecastGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <!-- Injected via JavaScript -->
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="mt-auto border-t border-slate-800/80 bg-slate-900/90 py-6 text-xs text-slate-400">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-cloud-sun text-sky-400"></i>
+        <span>WeatherWise Monitoring & Forecasting • Miguel Fernando Duyag (IPT2)</span>
+      </div>
+      <div class="flex items-center gap-4 text-slate-400">
+        <span id="backendStatus"><i class="fa-solid fa-circle text-emerald-400 text-[8px] mr-1"></i>API Connected</span>
+        <span>Hosted on Render</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- System Settings Modal -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-6">
+      
+      <div class="flex items-center justify-between pb-3 border-b border-slate-700">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-sky-400"></i> System Configuration
+        </h3>
+        <button id="closeSettingsBtn" class="text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Temperature Unit</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="modalUnitCelsius" class="p-2.5 rounded-xl border border-sky-500 bg-sky-500/20 text-sky-300 font-bold text-xs flex items-center justify-center gap-2">
+              <i class="fa-solid fa-temperature-half"></i> Celsius (°C)
+            </button>
+            <button id="modalUnitFahrenheit" class="p-2.5 rounded-xl border border-slate-700 bg-slate-900/50 text-slate-400 font-bold text-xs flex items-center justify-center gap-2 hover:border-slate-600">
+              <i class="fa-solid fa-temperature-full"></i> Fahrenheit (°F)
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Wind Speed Unit</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="modalWindKmh" class="p-2.5 rounded-xl border border-sky-500 bg-sky-500/20 text-sky-300 font-bold text-xs">
+              km/h (Kilometers)
+            </button>
+            <button id="modalWindMph" class="p-2.5 rounded-xl border border-slate-700 bg-slate-900/50 text-slate-400 font-bold text-xs">
+              mph (Miles/hr)
+            </button>
+          </div>
+        </div>
+
+        <!-- Connection Diagnostics -->
+        <div class="rounded-2xl bg-slate-900/70 border border-slate-700/60 p-4 space-y-2 text-xs">
+          <div class="font-bold text-slate-300 uppercase text-[10px] tracking-wider">System Diagnostic Status</div>
+          <div class="flex items-center justify-between text-slate-400">
+            <span>Database Backend:</span>
+            <span id="diagnosticDb" class="text-sky-400 font-medium">Checking...</span>
+          </div>
+          <div class="flex items-center justify-between text-slate-400">
+            <span>OpenWeather Integration:</span>
+            <span id="diagnosticWeather" class="text-amber-400 font-medium">Checking...</span>
+          </div>
+          <div class="flex items-center justify-between text-slate-400">
+            <span>Server Uptime:</span>
+            <span id="diagnosticUptime" class="text-slate-300 font-mono">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-end">
+        <button id="saveSettingsBtn" class="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs transition shadow-lg shadow-sky-500/20">
+          Save Preferences
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

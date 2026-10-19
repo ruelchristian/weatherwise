@@ -1,0 +1,33 @@
+{
+  "name": "weatherwise",
+  "version": "1.0.0",
+  "description": "WeatherWise: Real-Time Weather Monitoring and Forecasting Web Application",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "server": "node server/server.js",
+    "build": "node -e \"const fs=require('fs'); if(fs.existsSync('client/package.json')){ try{ const {execSync}=require('child_process'); execSync('cd client && npm install && npm run build', {stdio:'inherit'}); }catch(e){ console.log('Client build notice:', e.message); } }\"",
+    "postinstall": "node -e \"const fs=require('fs'); if(fs.existsSync('client/package.json')){ try{ const {execSync}=require('child_process'); execSync('cd client && npm install', {stdio:'inherit'}); }catch(e){ console.log('Postinstall notice:', e.message); } }\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mysql2": "^3.9.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "weather",
+    "monitoring",
+    "forecasting",
+    "react",
+    "vite",
+    "express",
+    "mysql",
+    "render"
+  ],
+  "author": "Miguel Fernando Duyag",
+  "license": "MIT"
+}
