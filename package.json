@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server/server.js",
     "server": "node server/server.js",
-    "build": "node -e \"const fs=require('fs'); if(fs.existsSync('client/package.json')){ try{ const {execSync}=require('child_process'); execSync('cd client && npm install && npm run build', {stdio:'inherit'}); }catch(e){ console.log('Client build notice:', e.message); } }\"",
-    "postinstall": "node -e \"const fs=require('fs'); if(fs.existsSync('client/package.json')){ try{ const {execSync}=require('child_process'); execSync('cd client && npm install', {stdio:'inherit'}); }catch(e){ console.log('Postinstall notice:', e.message); } }\""
+    "build": "node -e \"const fs=require('fs'); if(fs.existsSync('client/package.json')){ try{ const {execSync}=require('child_process'); execSync('cd client && npm install --include=dev && npm run build', {stdio:'inherit'}); }catch(e){ console.log('Client build notice:', e.message); } }\"",
+    "postinstall": "node -e \"const fs=require('fs'); if(fs.existsSync('client/package.json')){ try{ const {execSync}=require('child_process'); execSync('cd client && npm install --include=dev', {stdio:'inherit'}); }catch(e){ console.log('Postinstall notice:', e.message); } }\""
   },
   "dependencies": {
     "cors": "^2.8.5",
