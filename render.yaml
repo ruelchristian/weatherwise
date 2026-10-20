@@ -1,0 +1,27 @@
+databases:
+  - name: weatherwise-db
+    databaseName: weatherwise_db
+    user: weatherwise_user
+    plan: free
+    region: singapore
+    postgresMajorVersion: 16
+
+services:
+  - type: web
+    name: weatherwise-app
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: weatherwise-db
+          property: connectionString
